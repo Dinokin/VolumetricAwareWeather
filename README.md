@@ -14,26 +14,32 @@ This is an Alpha test. I am working on tuning the values in this mod as well as 
 
 
 **Installation**
+
 Requires but is not bundled with FAR, EVE Redux, and WindAPI plus any volumetric clouds config. Extract and merge GameData with your existing folder.
 
 
 **License & AI Usage**
+
 VolumetricAwareWeather is fully free and open under a CC0-1.0 license. AI was used for some coding and editing as part of this mod. This readme is fully human-written.
 
 
 **Credits**
+
 Blackrack for all the hard work including but not limited to EVE and Volumetric Clouds
 Aebestach for the awesome WeatherDrivenSolarPanel and the idea of using raymarching to find volumetric cloud thickness around a craft
 
 
 **Issues**
+
 Please report any issues on GitHub with your KSP log and a short description.
 
 
 **Limitations**
+
 Effects can be strong at low altitudes under dense clouds, especially with mods which add more layers of cloud coverage. I considered adding a fadeout effect below a threshold altitude, but I also want there to be strong turbulence when flying in clouds near a mountain face
 
 
-**Planned Features:**
+**Planned Features**
+
 Wind sound effects mod for all/any WindAPI mods including this one
 Unified WindAPI total wind display? If there is a desire for this
