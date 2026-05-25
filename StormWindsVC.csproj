@@ -32,16 +32,16 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
+      <HintPath>KSP_x64_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
     <Reference Include="Atmosphere">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\GameData\EnvironmentalVisualEnhancements\Plugins\Atmosphere.dll</HintPath>
+      <HintPath>GameData\EnvironmentalVisualEnhancements\Plugins\Atmosphere.dll</HintPath>
     </Reference>
     <Reference Include="EVEManager">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\GameData\EnvironmentalVisualEnhancements\Plugins\EVEManager.dll</HintPath>
+      <HintPath>GameData\EnvironmentalVisualEnhancements\Plugins\EVEManager.dll</HintPath>
     </Reference>
     <Reference Include="Scatterer">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\GameData\Scatterer\Scatterer.dll</HintPath>
+      <HintPath>GameData\Scatterer\Scatterer.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -52,16 +52,16 @@
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
     <Reference Include="UnityEngine">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\KSP_x64_Data\Managed\UnityEngine.dll</HintPath>
+      <HintPath>KSP_x64_Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>KSP_x64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\KSP_x64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+      <HintPath>KSP_x64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
     </Reference>
     <Reference Include="WindAPI">
-      <HintPath>C:\Users\Zhess\OneDrive\Documents\Games\KSP 1\Games\1.12.5 Sunkworks\KSP_win64\GameData\000_WindAPI\Plugins\WindAPI.dll</HintPath>
+      <HintPath>GameData\000_WindAPI\Plugins\WindAPI.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
