@@ -2,10 +2,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using WindAPI;
-using static PQSCity2;
 
 namespace StormWinds
 {
@@ -15,24 +13,35 @@ namespace StormWinds
     //  storm-wind gusts scaled by local cloud density.
     // =========================================================================
 
+    public class StormSettings
+    {
+        public float maxGustSpeed = 30.0f;
+        public float densityThreshold = 0.2f;
+        public float centerWeight = 0.7f;
+        public float areaWeight = 0.3f;
+        public float areaSampleRadius = 1000f;
+        public float gustInterval = 7.0f;
+        public float gustLerpSpeed = 1.0f;
+        public float maxStormThickness = 6000f;
+        public float groundWindFraction = 0.2f;
+        public float fadeStartAlt = 0f;
+        public float fadeEndAlt = 1000f;
+        public bool debugMode = false;
+
+        public StormSettings Clone()
+        {
+            return (StormSettings)this.MemberwiseClone();
+        }
+    }
+
     [KSPAddon(KSPAddon.Startup.Flight, once: false)]
     public class StormWindsController : MonoBehaviour, IWindProvider
     {
         // -----------------------------------------------------------------------
-        // Configuration
+        // Configuration State
         // -----------------------------------------------------------------------
-        private float maxGustSpeed = 40f;
-        private float densityThreshold = 0.2f;
-        private float centerWeight = 0.6f;
-        private float areaWeight = 0.4f;
-        private float areaSampleRadius = 1000f;
-        private float gustInterval = 3.0f;
-        private float gustLerpSpeed = 2.0f;
-        private float maxStormThickness = 4000f;
-        private float groundWindFraction = 0.25f;
-        private float fadeStartAlt = 0f;
-        private float fadeEndAlt = 250f;
-        private bool debugMode = false;
+        private StormSettings defaultSettings = new StormSettings();
+        private Dictionary<string, StormSettings> bodySettings = new Dictionary<string, StormSettings>(StringComparer.OrdinalIgnoreCase);
 
         // -----------------------------------------------------------------------
         // Gust state
@@ -130,46 +139,55 @@ namespace StormWinds
                 return;
             }
 
+            Vessel v = FlightGlobals.ActiveVessel;
             float gustMag = 0f;
+            StormSettings config = GetCurrentSettings(v.mainBody.bodyName);
 
-            if (_centerDensity > densityThreshold)
+            // Ensure vessel is > 1m ASL, body has atmosphere, and vessel is inside atmosphere
+            bool inValidAtmosphere = v.altitude > 1.0f && v.mainBody.atmosphere && v.altitude < v.mainBody.atmosphereDepth;
+
+            if (inValidAtmosphere)
             {
-                gustMag = maxGustSpeed * (_centerDensity * centerWeight + _areaDensity * areaWeight);
-                gustMag = Mathf.Clamp(gustMag, 0f, maxGustSpeed);
+                if (_centerDensity > config.densityThreshold)
+                {
+                    gustMag = config.maxGustSpeed * (_centerDensity * config.centerWeight + _areaDensity * config.areaWeight);
+                    gustMag = Mathf.Clamp(gustMag, 0f, config.maxGustSpeed);
+                }
+
+                // Altitude fadeout: scale winds down near the surface using radar altitude
+                float altScale = 1f;
+                if (config.fadeEndAlt > config.fadeStartAlt)
+                {
+                    float radarAlt = Mathf.Max(0f, (float)v.radarAltitude);
+                    if (radarAlt <= config.fadeStartAlt)
+                        altScale = config.groundWindFraction;
+                    else if (radarAlt < config.fadeEndAlt)
+                        altScale = Mathf.Lerp(config.groundWindFraction, 1f, (radarAlt - config.fadeStartAlt) / (config.fadeEndAlt - config.fadeStartAlt));
+                    // above fadeEndAlt: altScale stays 1f
+                }
+
+                gustMag *= altScale;
             }
 
-            // Altitude fadeout: scale winds down near the surface using radar altitude
-            float altScale = 1f;
-            if (fadeEndAlt > fadeStartAlt)
-            {
-                float radarAlt = Mathf.Max(0f, (float)FlightGlobals.ActiveVessel.radarAltitude);
-                if (radarAlt <= fadeStartAlt)
-                    altScale = groundWindFraction;
-                else if (radarAlt < fadeEndAlt)
-                    altScale = Mathf.Lerp(groundWindFraction, 1f, (radarAlt - fadeStartAlt) / (fadeEndAlt - fadeStartAlt));
-                // above fadeEndAlt: altScale stays 1f
-            }
-
-            float scaledGustMag = gustMag * altScale;
-            _currentGustMag = scaledGustMag;
+            _currentGustMag = gustMag;
             _gustTimer -= Time.fixedDeltaTime;
 
             if (_gustTimer <= 0f)
             {
-                _gustTimer = gustInterval;
-                _targetGust = (scaledGustMag > 0f) ? RandomHorizontalGust(scaledGustMag) : Vector3.zero;
+                _gustTimer = config.gustInterval;
+                _targetGust = (gustMag > 0f) ? RandomHorizontalGust(gustMag) : Vector3.zero;
             }
-            else if (scaledGustMag <= 0f)
+            else if (gustMag <= 0f)
             {
                 _targetGust = Vector3.zero;
             }
             else
             {
                 if (_targetGust != Vector3.zero)
-                    _targetGust = _targetGust.normalized * scaledGustMag;
+                    _targetGust = _targetGust.normalized * gustMag;
             }
 
-            _currentGust = Vector3.Lerp(_currentGust, _targetGust, Time.fixedDeltaTime * gustLerpSpeed);
+            _currentGust = Vector3.Lerp(_currentGust, _targetGust, Time.fixedDeltaTime * config.gustLerpSpeed);
         }
 
         // -----------------------------------------------------------------------
@@ -219,7 +237,6 @@ namespace StormWinds
         // -----------------------------------------------------------------------
         private IEnumerator SampleCloudsRoutine()
         {
-            // Cache the offsets array outside the loop to prevent GC allocation
             Vector3[] sampleOffsets = new Vector3[8];
 
             while (true)
@@ -231,8 +248,16 @@ namespace StormWinds
 
                 Vessel v = FlightGlobals.ActiveVessel;
                 string bodyName = v.mainBody.bodyName;
-                Vector3 craftPos = v.transform.position;
+                StormSettings config = GetCurrentSettings(bodyName);
 
+                if (v.altitude <= 1.0f || !v.mainBody.atmosphere || v.altitude >= v.mainBody.atmosphereDepth)
+                {
+                    _centerDensity = 0f;
+                    _areaDensity = 0f;
+                    continue;
+                }
+
+                Vector3 craftPos = v.transform.position;
                 float totalCenterMeters = 0f;
                 float totalAreaMeters = 0f;
                 bool foundClouds = false;
@@ -250,16 +275,19 @@ namespace StormWinds
                 Vector3 sw = (-north - east).normalized;
 
                 // Update the pre-allocated array (Zero Garbage)
-                sampleOffsets[0] = north * areaSampleRadius;
-                sampleOffsets[1] = -north * areaSampleRadius;
-                sampleOffsets[2] = east * areaSampleRadius;
-                sampleOffsets[3] = -east * areaSampleRadius;
-                sampleOffsets[4] = ne * areaSampleRadius;
-                sampleOffsets[5] = nw * areaSampleRadius;
-                sampleOffsets[6] = se * areaSampleRadius;
-                sampleOffsets[7] = sw * areaSampleRadius;
+                float radius = config.areaSampleRadius;
+                sampleOffsets[0] = north * radius;
+                sampleOffsets[1] = -north * radius;
+                sampleOffsets[2] = east * radius;
+                sampleOffsets[3] = -east * radius;
+                sampleOffsets[4] = ne * radius;
+                sampleOffsets[5] = nw * radius;
+                sampleOffsets[6] = se * radius;
+                sampleOffsets[7] = sw * radius;
 
-                // Iterate via standard foreach to avoid LINQ GC allocations
+                // Absolute maximum altitude to allow sampling for
+                float atmMaxRadius = (float)v.mainBody.Radius + (float)v.mainBody.atmosphereDepth;
+
                 var allClouds = CloudsManager.GetObjectList();
                 if (allClouds != null)
                 {
@@ -267,12 +295,20 @@ namespace StormWinds
                     {
                         if (layer.Body == bodyName && layer.LayerRaymarchedVolume != null)
                         {
-                            foundClouds = true;
                             var volume = layer.LayerRaymarchedVolume;
-                            Vector3 sphereCenter = volume.ParentTransform != null ? volume.ParentTransform.position : v.mainBody.transform.position;
-
-                            float outerRadius = Mathf.Max(volume.PlanetRadius, volume.OuterSphereRadius);
                             float innerRadius = Mathf.Max(volume.PlanetRadius, volume.InnerSphereRadius);
+                            float outerRadius = Mathf.Max(volume.PlanetRadius, volume.OuterSphereRadius);
+
+                            // Skip entirely if this cloud starts in space
+                            if (innerRadius >= atmMaxRadius)
+                                continue;
+
+                            // Clamp the upper sampling bounds
+                            if (outerRadius > atmMaxRadius)
+                                outerRadius = atmMaxRadius;
+
+                            foundClouds = true;
+                            Vector3 sphereCenter = volume.ParentTransform != null ? volume.ParentTransform.position : v.mainBody.transform.position;
 
                             // 1. Center sample
                             totalCenterMeters += GetColumnThickness(volume, craftPos, up, sphereCenter, innerRadius, outerRadius);
@@ -295,12 +331,12 @@ namespace StormWinds
                     continue;
                 }
 
-                _centerDensity = Mathf.Clamp01(totalCenterMeters / maxStormThickness);
-                _areaDensity = Mathf.Clamp01(totalAreaMeters / maxStormThickness);
+                _centerDensity = Mathf.Clamp01(totalCenterMeters / config.maxStormThickness);
+                _areaDensity = Mathf.Clamp01(totalAreaMeters / config.maxStormThickness);
 
-                if (debugMode)
+                if (config.debugMode)
                 {
-                    Debug.Log($"[StormWinds] Alt: {v.altitude:F0} | RadarAlt: {v.radarAltitude:F0} | CenterMeters: {totalCenterMeters:F0} | AreaMeters: {totalAreaMeters:F0} | Gust: {_currentGustMag:F1} m/s (scaled)");
+                    Debug.Log($"[StormWinds] Body: {bodyName} | Alt: {v.altitude:F0} | CenterMeters: {totalCenterMeters:F0} | AreaMeters: {totalAreaMeters:F0} | GustTarget: {_currentGustMag:F1} m/s");
                 }
             }
         }
@@ -312,14 +348,10 @@ namespace StormWinds
         {
             float distFromCenter = Vector3.Distance(basePos, sphereCenter);
 
-            // Calculate how far up we need to trace to traverse the entire cloud layer.
-            // If we are below the clouds, startDist evaluates to the distance to the cloud base.
-            // If we are inside the clouds, startDist is 0 and we evaluate to the cloud tops.
             float startDist = Mathf.Max(0f, innerRadius - distFromCenter);
             float endDist = outerRadius - distFromCenter;
             float rayLength = endDist - startDist;
 
-            // If rayLength <= 0, the vessel is flying above the storm tops. No wind!
             if (rayLength <= 0f) return 0f;
 
             int steps = 10;
@@ -328,7 +360,6 @@ namespace StormWinds
 
             for (int i = 0; i < steps; i++)
             {
-                // Sample at the midpoint of each ray segment
                 float d = startDist + (i + 0.5f) * stepSize;
                 Vector3 samplePos = basePos + up * d;
 
@@ -343,47 +374,91 @@ namespace StormWinds
         }
 
         // -----------------------------------------------------------------------
-        // Config loader
+        // Config management
         // -----------------------------------------------------------------------
         private void LoadConfig()
         {
             ConfigNode[] nodes = GameDatabase.Instance.GetConfigNodes("STORMWINDS_CONFIG");
             if (nodes == null || nodes.Length == 0)
             {
-                Debug.LogWarning("[StormWinds] No STORMWINDS_CONFIG found. Using default settings.");
+                Debug.LogWarning("[StormWinds] No STORMWINDS_CONFIG found. Using hardcoded defaults.");
                 return;
             }
 
-            ConfigNode n = nodes[0];
-            TryParseFloat(n, "maxGustSpeed", ref maxGustSpeed);
-            TryParseFloat(n, "densityThreshold", ref densityThreshold);
-            TryParseFloat(n, "centerWeight", ref centerWeight);
-            TryParseFloat(n, "areaWeight", ref areaWeight);
-            TryParseFloat(n, "areaSampleRadius", ref areaSampleRadius);
-            TryParseFloat(n, "gustInterval", ref gustInterval);
-            TryParseFloat(n, "gustLerpSpeed", ref gustLerpSpeed);
-            TryParseFloat(n, "maxStormThickness", ref maxStormThickness);
-            TryParseFloat(n, "groundWindFraction", ref groundWindFraction);
-            TryParseFloat(n, "fadeStartAlt", ref fadeStartAlt);
-            TryParseFloat(n, "fadeEndAlt", ref fadeEndAlt);
-
-            if (n.HasValue("enableDebug"))
-                bool.TryParse(n.GetValue("enableDebug"), out debugMode);
-
-            // Normalize weights
-            float weightSum = centerWeight + areaWeight;
-            if (weightSum > 0f)
+            // PASS 1: Identify Default Fallback configuration
+            foreach (ConfigNode n in nodes)
             {
-                centerWeight /= weightSum;
-                areaWeight /= weightSum;
+                if (!n.HasValue("bodyName") || n.GetValue("bodyName").Trim().Equals("default", StringComparison.OrdinalIgnoreCase))
+                {
+                    ParseSettingsNode(n, defaultSettings);
+                    Debug.Log("[StormWinds] Loaded base Default settings.");
+                }
             }
 
-            Debug.Log($"[StormWinds] Config loaded. MaxGust={maxGustSpeed}, Threshold={densityThreshold}, Radius={areaSampleRadius}m, GroundFraction={groundWindFraction}, FadeEnd={fadeEndAlt}m");
+            // PASS 2: Load Body-Specific configurations overriding the default
+            foreach (ConfigNode n in nodes)
+            {
+                if (n.HasValue("bodyName"))
+                {
+                    string rawNames = n.GetValue("bodyName");
+                    if (rawNames.Trim().Equals("default", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    string[] bodies = rawNames.Split(',');
+                    foreach (string body in bodies)
+                    {
+                        string bName = body.Trim();
+                        if (!string.IsNullOrEmpty(bName))
+                        {
+                            StormSettings planetSettings = defaultSettings.Clone(); // Inherit unspecified vars from Default
+                            ParseSettingsNode(n, planetSettings);
+                            bodySettings[bName] = planetSettings;
+                            Debug.Log($"[StormWinds] Loaded body-specific settings for: {bName}");
+                        }
+                    }
+                }
+            }
+        }
+
+        private void ParseSettingsNode(ConfigNode n, StormSettings s)
+        {
+            TryParseFloat(n, "maxGustSpeed", ref s.maxGustSpeed);
+            TryParseFloat(n, "densityThreshold", ref s.densityThreshold);
+            TryParseFloat(n, "centerWeight", ref s.centerWeight);
+            TryParseFloat(n, "areaWeight", ref s.areaWeight);
+            TryParseFloat(n, "areaSampleRadius", ref s.areaSampleRadius);
+            TryParseFloat(n, "gustInterval", ref s.gustInterval);
+            TryParseFloat(n, "gustLerpSpeed", ref s.gustLerpSpeed);
+            TryParseFloat(n, "maxStormThickness", ref s.maxStormThickness);
+            TryParseFloat(n, "groundWindFraction", ref s.groundWindFraction);
+            TryParseFloat(n, "fadeStartAlt", ref s.fadeStartAlt);
+            TryParseFloat(n, "fadeEndAlt", ref s.fadeEndAlt);
+            TryParseBool(n, "enableDebug", ref s.debugMode);
+
+            // Normalize weights
+            float weightSum = s.centerWeight + s.areaWeight;
+            if (weightSum > 0f)
+            {
+                s.centerWeight /= weightSum;
+                s.areaWeight /= weightSum;
+            }
+        }
+
+        private StormSettings GetCurrentSettings(string bodyName)
+        {
+            if (bodySettings.TryGetValue(bodyName, out StormSettings settings))
+                return settings;
+
+            return defaultSettings;
         }
 
         private static void TryParseFloat(ConfigNode n, string key, ref float field)
         {
             if (n.HasValue(key)) float.TryParse(n.GetValue(key), out field);
+        }
+
+        private static void TryParseBool(ConfigNode n, string key, ref bool field)
+        {
+            if (n.HasValue(key)) bool.TryParse(n.GetValue(key), out field);
         }
     }
 }
